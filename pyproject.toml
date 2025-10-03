@@ -1,0 +1,30 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sbwrapper"
+version = "0.1.0"
+description = "Python bindings for SlideBook remote metadata and acquisition APIs"
+readme = "README.md"
+authors = [{ name = "Intelligent Imaging Innovations" }]
+license = { text = "BSD-3-Clause" }
+requires-python = ">=3.9"
+dependencies = [
+    "numpy",
+    "pyyaml",
+]
+
+[project.scripts]
+sbwrapper = "sbwrapper.cli:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+

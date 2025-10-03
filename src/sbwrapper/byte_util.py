@@ -1,41 +1,62 @@
-import numpy as np
+try:
+    import numpy as np
+except ImportError as _numpy_error:  # pragma: no cover - import guard
+    np = None  # type: ignore[assignment]
+    _NUMPY_ERROR = _numpy_error
+else:  # pragma: no cover - executed when numpy is available
+    _NUMPY_ERROR = None
+
+
+def _require_numpy():
+    if np is None:  # pragma: no cover - triggered when numpy missing
+        raise ImportError(
+            "numpy is required for sbwrapper.byte_util operations"
+        ) from _NUMPY_ERROR
 
 def uint16_to_bytes(inVal):
+    _require_numpy()
     theArray = np.array([inVal],np.uint16)
     theBytes = theArray.tobytes()
     return theBytes
 
 def int16_to_bytes(inVal):
+    _require_numpy()
     theArray = np.array([inVal],np.int16)
     theBytes = theArray.tobytes()
     return theBytes
 
 def uint32_to_bytes(inVal):
+    _require_numpy()
     theArray = np.array([inVal],np.uint32)
     theBytes = theArray.tobytes()
     return theBytes
 
 def int32_to_bytes(inVal):
+    _require_numpy()
     theArray = np.array([inVal],np.int32)
     theBytes = theArray.tobytes()
     return theBytes
 
 def uint64_to_bytes(inVal):
+    _require_numpy()
     theArray = np.array([inVal],np.uint64)
     theBytes = theArray.tobytes()
     return theBytes
 
 def int64_to_bytes(inVal):
+    _require_numpy()
     theArray = np.array([inVal],np.int64)
     theBytes = theArray.tobytes()
     return theBytes
 
 def float32_to_bytes(inVal):
+    _require_numpy()
     theArray = np.array([inVal],np.float32)
     theBytes = theArray.tobytes()
     return theBytes
 
 def float64_to_bytes(inVal):
+    _require_numpy()
     theArray = np.array([inVal],np.float64)
     theBytes = theArray.tobytes()
     return theBytes
@@ -51,10 +72,12 @@ def bytes_to_string(inBytes):
     return theString
 
 def bytes_to_int32(inBytes):
+    _require_numpy()
     theArr = np.frombuffer(inBytes,np.int32)
     return theArr
 
 def bytes_to_float32(inBytes):
+    _require_numpy()
     theArr = np.frombuffer(inBytes,np.float32)
     return theArr
 
@@ -81,6 +104,11 @@ def type_to_bytes(inVal,inType):
     return theBytes
     
 def bytes_to_type(inBytes,inType):
+    if(inType == 's'):
+        return bytes_to_string(inBytes)
+
+    _require_numpy()
+
     if(inType == 'u2'):
         theArr = np.frombuffer(inBytes,np.uint16)
     elif(inType == 'i2'):
@@ -97,7 +125,5 @@ def bytes_to_type(inBytes,inType):
         theArr = np.frombuffer(inBytes,np.float32)
     elif(inType == 'f8'):
         theArr = np.frombuffer(inBytes,np.float64)
-    elif(inType == 's'):
-        theArr = bytes_to_string(inBytes)
 
     return theArr

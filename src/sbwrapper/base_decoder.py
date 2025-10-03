@@ -1,8 +1,20 @@
 __copyright__  = "Copyright (c) 2022, Intelligent Imaging Innovations, Inc. All rights reserved.  All rights reserved."
 __license__  = "This source code is licensed under the BSD-style license found in the LICENSE file in the root directory of this source tree."
 
-import yaml
 import re
+
+try:  # pragma: no cover - import guard
+    import yaml  # type: ignore[import-not-found]
+except ImportError as _yaml_error:  # pragma: no cover - import guard
+    class _YamlPlaceholder:
+        def __getattr__(self, name: str):  # pragma: no cover - helper
+            raise ImportError(
+                "pyyaml is required for sbwrapper decoding operations"
+            ) from _yaml_error
+
+    yaml = _YamlPlaceholder()  # type: ignore[assignment]
+else:  # pragma: no cover - executed when PyYAML is available
+    pass
 
 class BaseDecoder(object):
     def __init__(self):

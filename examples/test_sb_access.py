@@ -8,7 +8,7 @@ import numpy as np
 import time
 import random
 from matplotlib import pyplot as plt
-from SBAccess import *
+from sbwrapper import *
 #from io import StringIO
 
 #HOST = '127.0.0.1'  # Standard loopback interface address (localhost)
