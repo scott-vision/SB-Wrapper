@@ -11,16 +11,39 @@ __license__  = "This source code is licensed under the BSD-style license found i
 #they are in the sandbox, or on github
 #sys.path.append('C:/Users/Nicola Papp/Perforce/Nicola_MSI_552/dev/SB_7.0_BCG/SBReadFile/dist/Python/Format 7')
 import io
-from CMetadataLib import BaseDecoder
-from CMetadataLib import CLensDef70
-from CMetadataLib import CFluorDef70
-from CMetadataLib import COptovarDef70
 from enum import Enum
-import yaml
 
+try:  # pragma: no cover - import guard
+    import yaml  # type: ignore[import-not-found]
+except ImportError as _yaml_error:  # pragma: no cover - import guard
+    class _YamlPlaceholder:
+        def __getattr__(self, name: str):  # pragma: no cover - helper
+            raise ImportError(
+                "pyyaml is required for sbwrapper SBAccess operations"
+            ) from _yaml_error
 
-import ByteUtil as bu
-import numpy as np
+    yaml = _YamlPlaceholder()  # type: ignore[assignment]
+else:  # pragma: no cover - executed when PyYAML is available
+    pass
+
+from . import byte_util as bu
+from .c_metadata_lib import BaseDecoder
+from .c_metadata_lib import CFluorDef70
+from .c_metadata_lib import CLensDef70
+from .c_metadata_lib import COptovarDef70
+
+try:  # pragma: no cover - import guard
+    import numpy as np  # type: ignore[import-not-found]
+except ImportError as _numpy_error:  # pragma: no cover - import guard
+    class _NumpyPlaceholder:
+        def __getattr__(self, name: str):  # pragma: no cover - helper
+            raise ImportError(
+                "numpy is required for sbwrapper SBAccess operations"
+            ) from _numpy_error
+
+    np = _NumpyPlaceholder()  # type: ignore[assignment]
+else:  # pragma: no cover - executed when numpy is available
+    pass
 
 class MicroscopeStates(Enum):
     """
