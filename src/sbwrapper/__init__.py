@@ -3,6 +3,7 @@
 from . import byte_util
 from . import c_metadata_lib as _metadata_lib
 from .base_decoder import BaseDecoder
+from .connection import MicroscopeConnection
 from .csb_point import CSBPoint
 from .sb_access import MicroscopeHardwareComponent
 from .sb_access import MicroscopeStates
@@ -17,6 +18,7 @@ __all__ = [
     "SBAccess",
     "MicroscopeStates",
     "MicroscopeHardwareComponent",
+    "MicroscopeConnection",
     "BaseDecoder",
     "CSBPoint",
     "byte_util",
