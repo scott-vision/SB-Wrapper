@@ -10,13 +10,15 @@ pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 
 from src.interfaces.web.app import create_app
+from src import configuration
 
 
 @pytest.fixture(autouse=True)
-def _clear_frontend_env(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ensure the frontend directory env var is unset between tests."""
+def _reset_configuration() -> None:
+    """Ensure each test sees a clean configuration state."""
 
-    monkeypatch.delenv("SBS_FRONTEND_DIR", raising=False)
+    configuration.reset_overrides()
+    configuration.reload_settings()
 
 
 def test_create_app_without_ui() -> None:
@@ -31,33 +33,33 @@ def test_create_app_without_ui() -> None:
     assert missing.status_code == 404
 
 
-def test_create_app_with_ui_missing(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("SBS_FRONTEND_DIR", str(tmp_path / "missing"))
+def test_create_app_with_ui_missing(tmp_path: Path) -> None:
+    frontend_dir = tmp_path / "missing"
 
-    app = create_app(include_ui=True)
-    client = TestClient(app)
+    with configuration.override_settings({"frontend": {"directory": str(frontend_dir)}}):
+        app = create_app(include_ui=True)
+        client = TestClient(app)
 
-    response = client.get("/capture/scripts")
-    assert response.status_code == 200
+        response = client.get("/capture/scripts")
+        assert response.status_code == 200
 
-    missing = client.get("/")
-    assert missing.status_code == 404
+        missing = client.get("/")
+        assert missing.status_code == 404
 
 
-def test_create_app_with_ui_available(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_create_app_with_ui_available(tmp_path: Path) -> None:
     frontend = tmp_path / "frontend"
     frontend.mkdir()
     (frontend / "index.html").write_text("<html><body>Hello</body></html>")
     (frontend / "styles.css").write_text("body {color: black;}")
-    monkeypatch.setenv("SBS_FRONTEND_DIR", str(frontend))
+    with configuration.override_settings({"frontend": {"directory": str(frontend)}}):
+        app = create_app(include_ui=True)
+        client = TestClient(app)
 
-    app = create_app(include_ui=True)
-    client = TestClient(app)
+        response = client.get("/")
+        assert response.status_code == 200
+        assert "Hello" in response.text
 
-    response = client.get("/")
-    assert response.status_code == 200
-    assert "Hello" in response.text
-
-    static_response = client.get("/static/styles.css")
-    assert static_response.status_code == 200
-    assert "color" in static_response.text
+        static_response = client.get("/static/styles.css")
+        assert static_response.status_code == 200
+        assert "color" in static_response.text
