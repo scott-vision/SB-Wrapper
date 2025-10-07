@@ -1,112 +1,109 @@
-# SB Wrapper
+# SBSynergyInterface
 
-Utilities and metadata structures for working with SlideBook's remote control
-and acquisition APIs from Python.
+This repository provides utilities for SlideBook automation packaged under the
+``sbs_interface`` namespace. A small FastAPI application exposes the core
+functionality as a JSON API.  A lightweight HTML front end lives in the top-
+level `frontend/` directory and is entirely optional – any other client can
+communicate with the same backend endpoints.  The core microscope operations
+are also exposed as plain Python functions in `sbs_interface.api`, allowing
+alternate interfaces (e.g. a Tkinter GUI) to drive the backend directly
+without going through HTTP.
 
-## Installation
+## Quick start
 
-The project now uses a modern `pyproject.toml` configuration with a `src`
-layout. Install in editable mode while developing:
+1. Create and activate the conda environment (includes `numpy`, `matplotlib`,
+   `pyyaml`, `bleak`, `fastapi`, `uvicorn`, and `pydantic`):
+   ```bash
+   conda env create -f environment.yml
+   conda activate SBAccess
+   ```
+2. Launch the web API (and optional bundled UI):
+   ```bash
+   python -m sbs_interface.webapp
+   ```
+ The server looks for static files in `frontend/`.  Set the environment
+  variable `SBS_FRONTEND_DIR` to serve a different front-end directory or omit
+  the folder entirely to use only the backend API.
 
-```bash
-pip install -e .
-```
+## Programmatic use
 
-This installs the `sbwrapper` package and its dependencies (`numpy` and
-`pyyaml`) as well as a small helper CLI.
-
-## Command Line Entry Point
-
-After installation a ``sbwrapper`` console script becomes available. Use it to
-inspect the available APIs directly from a shell:
-
-```bash
-sbwrapper --doc            # Render the SBAccess documentation
-sbwrapper --list-metadata  # List metadata record classes
-```
-
-## Python Usage
-
-```python
-from sbwrapper import MicroscopeClient, MicroscopeConnection, MicroscopeStates
-
-with MicroscopeConnection("127.0.0.1", 60000, keep_alive_interval=30.0) as sb:
-    # Interact with the remote SlideBook instance via the SBAccess API.
-    print(MicroscopeStates.CurrentObjective)
-
-    client = MicroscopeClient(sb)
-    client.add_points(
-        [
-            {"x": 0.0, "y": 0.0, "z": 0.0},
-            (100.0, 50.0, 5.0, 2.0),  # tuple shorthand, auxiliary Z implied
-        ],
-        clear_existing=True,
-    )
-    print("Uploaded", len(client.get_points()), "points")
-```
-
-The package exposes the low-level networking client (`SBAccess`), the
-high-level `MicroscopeConnection` context manager, the convenience
-`MicroscopeClient` wrapper, enumerations for hardware state queries, helper
-utilities in `sbwrapper.byte_util`, and the generated metadata structures under
-`sbwrapper.c_metadata_lib`.
-
-`MicroscopeClient` adds quality-of-life methods for common workflows such as
-stage positioning and point-list management:
+All API endpoints are thin wrappers around functions in `sbs_interface.api`.
+These functions can be imported and called directly from any Python front end:
 
 ```python
-with MicroscopeConnection("127.0.0.1", 60000) as sb:
-    client = MicroscopeClient(sb)
-    stage = client.get_stage_position(include_aux=True)
-    print(stage)
+from sbs_interface.api import get_microscope_points
+from sbs_interface.services.microscope import get_microscope_service
 
-    # Move 25 µm in X and -10 µm in Z relative to the current position.
-    client.set_stage_position(x=25.0, z=-10.0, relative=True)
+ms = get_microscope_service()
+points = get_microscope_points(ms)
 ```
 
-### Remote Connection Configuration
+## User Guide
 
-The connection helper expects the SlideBook remote-control service to be
-enabled. Typical deployments expose the service on TCP port ``60000`` and use
-the hostname or IP address of the workstation running SlideBook. When
-credentials are required, authenticate through the returned `SBAccess` instance
-inside the context manager (for example via `client.Login(user, password)`).
+The web interface exposes several tools:
 
-For repeatable automation workflows you may prefer setting environment
-variables and passing them into ``MicroscopeConnection``:
+- **Detect Objects** – browse microscope images, adjust channels and Z planes, run object detection, and upload detected points.
+- **CelFDrive** – select capture scripts, filter detections, and manage high-resolution workflows.
+- **Point Finder** – manually pick points on the microscope image.
+- **Point Optimiser** – reorder points to minimise stage travel.
 
-```bash
-export SBWRAPPER_HOST=192.168.1.20
-export SBWRAPPER_PORT=60000
-```
+Open http://127.0.0.1:65432/guide for more detailed instructions.  Pass
+``--host`` and ``--port`` to ``python -m sbs_interface.webapp`` to bind to a
+different address.
 
-```python
-from sbwrapper import MicroscopeConnection
-import os
+## API Endpoints
+- `GET /microscope/status` – basic connection status.
+- `GET /microscope/points` – fetch current points from SlideBook.
+- `GET /microscope/montage?channel=...&z=...&cross_corr=0|1&use_features=0|1` –
+  retrieve a stitched montage image. Set `cross_corr=1` to refine tile offsets
+  via phase correlation and `use_features=1` to enable a feature-based
+  fallback when correlation is weak.
+- `GET /points/optimise?algorithm=...` – reorder points and report metrics. Use
+  `algorithm=nn2opt` (default) for a deterministic tour, `algorithm=stochastic`
+  for a quicker stochastic search, or `algorithm=anneal` for the most thorough
+  but slow simulated annealing. The JSON response includes `computeMs`, the
+  time taken to calculate the optimised order in milliseconds.
 
-conn = MicroscopeConnection(
-    os.environ["SBWRAPPER_HOST"],
-    int(os.environ.get("SBWRAPPER_PORT", "60000")),
-    keep_alive_interval=10.0,
-    keep_alive_message="PING\n",
-)
+### Montage utilities
 
-with conn as client:
-    # Perform initialization commands here. The connection automatically
-    # retries transient network failures and keeps the socket alive.
-    ...
-```
+`sbs_interface.SBMontageUtils.MontageUtils` can assemble SlideBook montages into
+a single mosaic. The :py:meth:`stitch` method accepts two optional flags:
+``cross_correlation`` refines stage‑reported offsets using phase correlation and
+``use_features`` enables a feature‑based fallback (requiring OpenCV or
+scikit‑image) when correlation peaks are weak or shifts appear implausible.
 
-The connection object can be reused across threads, and calling ``close()`` or
-exiting the context manager ensures the socket is shut down and the keep-alive
-worker terminates.
+## Flutter desktop CelFDrive
 
-## Examples and Tests
+The `celfdrive_flutter` directory contains a Flutter reimplementation of the
+web-based CelFDrive page. It communicates with the same FastAPI backend and can
+be built for Windows, macOS, or Linux.
 
-Demonstration scripts such as `examples/test_sb_access.py` show how to interact
-with a running SlideBook instance. Automated tests live in the `tests/`
-directory and always import from the `sbwrapper` package.
+### Run during development
+1. Start the Python backend:
+   ```bash
+   python -m sbs_interface.webapp
+   ```
+2. Launch the Flutter UI:
+   ```bash
+   cd celfdrive_flutter
+   flutter create .   # only needed the first time
+   flutter pub get
+   flutter run
+   ```
 
-Always ensure the source files in `src/sbwrapper/` track the latest upstream
-versions from the official SlideBook interoperability repository.
-
+### Build a standalone executable
+1. Freeze the backend with [`pyinstaller`](https://www.pyinstaller.org/):
+   ```bash
+   pyinstaller -F sbs_interface/webapp.py -n sbs_interface_server
+   ```
+2. Place the resulting `sbs_interface_server` next to the Flutter project.
+3. Compile the Flutter desktop app:
+   ```bash
+   flutter build windows   # or macos/linux
+   ```
+4. Copy `sbs_interface_server` into the generated runner directory
+   (`build/<platform>/runner/Release`).
+5. Optionally use a packaging tool such as
+   [`msix`](https://pub.dev/packages/msix) or Inno Setup to bundle the folder
+   into a single distributable `.exe` that launches both the backend and the
+   Flutter UI.
