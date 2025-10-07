@@ -19,7 +19,7 @@ without going through HTTP.
    ```
 2. Launch the web API (and optional bundled UI):
    ```bash
-   python -m sbs_interface.webapp
+   python -m src
    ```
  The server looks for static files in `frontend/`.  Set the environment
   variable `SBS_FRONTEND_DIR` to serve a different front-end directory or omit
@@ -48,8 +48,7 @@ The web interface exposes several tools:
 - **Point Optimiser** – reorder points to minimise stage travel.
 
 Open http://127.0.0.1:65432/guide for more detailed instructions.  Pass
-``--host`` and ``--port`` to ``python -m sbs_interface.webapp`` to bind to a
-different address.
+``--host`` and ``--port`` to ``python -m src`` to bind to a different address.
 
 ## API Endpoints
 - `GET /microscope/status` – basic connection status.
@@ -81,7 +80,7 @@ be built for Windows, macOS, or Linux.
 ### Run during development
 1. Start the Python backend:
    ```bash
-   python -m sbs_interface.webapp
+   python -m src
    ```
 2. Launch the Flutter UI:
    ```bash
@@ -94,7 +93,7 @@ be built for Windows, macOS, or Linux.
 ### Build a standalone executable
 1. Freeze the backend with [`pyinstaller`](https://www.pyinstaller.org/):
    ```bash
-   pyinstaller -F sbs_interface/webapp.py -n sbs_interface_server
+   pyinstaller -F src/interfaces/web/app.py -n sbs_interface_server
    ```
 2. Place the resulting `sbs_interface_server` next to the Flutter project.
 3. Compile the Flutter desktop app:
