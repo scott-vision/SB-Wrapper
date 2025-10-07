@@ -25,6 +25,28 @@ without going through HTTP.
   ``frontend.directory`` entry in ``config.yaml`` to serve a different
   front-end directory or omit the folder entirely to use only the backend API.
 
+### Pairing with an Electron/React UI
+
+If you already have an Electron/React application, keep this repository in the
+same mono-repo but run it as a standalone backend service:
+
+1. Add this project as a sibling to your Electron code (for example, place it
+   under `backend/` or `python/` at the repository root).
+2. Start the FastAPI server with `python -m src` when your Electron app boots
+   (e.g. from Electron's `main` process) or run it separately during
+   development.
+3. From the React renderer, call the REST endpoints exposed by the backend
+   (`/microscope/status`, `/microscope/points`, `/points/optimise`, etc.) using
+   `fetch`, `axios`, or any HTTP client.
+4. Optionally point `config.yaml -> frontend.directory` to your React build
+   output if you would like FastAPI to serve the compiled static assets on the
+   same port; otherwise leave it `null` and let Electron handle the UI while the
+   Python service only responds to API requests.
+
+This approach keeps the backend decoupled (making it easier to test and reuse)
+while still living in the same repository as your Electron/React code for a
+unified development workflow.
+
 ## Configuration
 
 Runtime settings live in ``config.yaml`` at the repository root.  The default
