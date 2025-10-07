@@ -68,6 +68,13 @@ class MicroscopeClient:
         self.sb = None
         logging.info("Disconnected from microscope")
 
+    def is_healthy(self) -> bool:
+        """Return ``True`` when the socket and SBAccess handle are usable."""
+        if not self.sock or not self.sb:
+            return False
+        closed = getattr(self.sock, "_closed", True)
+        return not closed
+
     def fetch_points(self) -> List[Point]:
         """Return all current XYZ points from SlideBook."""
         if not self.sb:
