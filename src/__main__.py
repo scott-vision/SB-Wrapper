@@ -1,6 +1,5 @@
-from .webapp import main
+from .interfaces.web.app import main
 
 
 if __name__ == "__main__":
     main()
-
