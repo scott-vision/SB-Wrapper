@@ -13,8 +13,10 @@ from pydantic import BaseModel, Field
 from .SBDetectObjects import ObjectDetector
 from .SBPointOptimiser import RouteOptimizer, distance, Point
 from .SBPointFinder import PointFinder
+from .services import celfdrive_workflow
 from .services.microscope import MicroscopeService
-from .celfdrive import detect_montage
+
+detect_montage = celfdrive_workflow.detect_montage
 
 
 class PointModel(BaseModel):
@@ -182,7 +184,14 @@ def detect_objects(
     if montage:
         # Propagate the SAHI flag so montage detection can toggle between
         # standard and sliding‑window inference.
-        return detect_montage(ms, channel, z, max_project, use_sahi=sahi)
+        detection = celfdrive_workflow.detect_montage(
+            ms,
+            channel=channel,
+            z=z,
+            max_project=max_project,
+            use_sahi=sahi,
+        )
+        return detection.to_dict()
     arr, _ = ms.fetch_display_image(channel, z, max_project)
     if arr.size == 0:
         raise ValueError("Empty image returned")
@@ -195,46 +204,26 @@ def get_capture_count(ms: MicroscopeService) -> int:
 
 
 def start_celfdrive(req: CelFDriveRequest, ms: MicroscopeService) -> dict:
-    if not req.simulated:
-        ms.start_capture(req.prescan)
-        # Ensure at least one capture exists and acquisition has finished
-        with ms._client() as mc:
-            ms._wait_for_capture(mc)
-    det = detect_montage(ms, 0, 0, req.max_project)
-    boxes = [
-        b
-        for b in det["boxes"]
-        if b["label"] in req.classes
-        and b["confidence"] >= req.classes[b["label"]]
-    ]
-    x_off = req.offsets.get("x_offset", req.offsets.get("x", 0.0))
-    y_off = req.offsets.get("y_offset", req.offsets.get("y", 0.0))
-    z_off = req.offsets.get("z_offset", req.offsets.get("z", 0.0))
-    points = [
-        PointModel(
-            x=b["x"] + b["width"] / 2 + x_off,
-            y=b["y"] + b["height"] / 2 + y_off,
-            z=z_off,
-            auxZ=z_off,
-        )
-        for b in boxes
-    ]
-    if points:
-        find_microscope_points(points, ms)
-    if not req.simulated:
-        if req.objective is not None:
-            ms.set_objective(req.objective)
-        ms.start_capture(req.highres)
-    montage = get_microscope_montage(
-        0, 0, req.max_project, False, False, ms
+    result = celfdrive_workflow.run_celfdrive_workflow(
+        ms,
+        prescan_script=req.prescan,
+        highres_script=req.highres,
+        class_thresholds=req.classes,
+        offsets=req.offsets,
+        simulated=req.simulated,
+        max_project=req.max_project,
+        objective=req.objective,
     )
-    capture_count = get_capture_count(ms)
+    montage_image = result.montage_image
+    if getattr(montage_image, "size", 0) == 0:
+        raise ValueError("Empty image returned")
+    montage_b64 = _encode_image(montage_image)
     return {
-        "montage": montage["image"],
-        "width": montage["width"],
-        "height": montage["height"],
-        "boxes": boxes,
-        "captureCount": int(capture_count),
+        "montage": montage_b64,
+        "width": result.width,
+        "height": result.height,
+        "boxes": result.boxes,
+        "captureCount": int(result.capture_count),
     }
 
 

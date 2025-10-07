@@ -1,94 +1,94 @@
 import sys
 import types
+from pathlib import Path
 
 real_numpy = sys.modules.get("numpy")
 sys.modules["numpy"] = types.SimpleNamespace()
 sys.modules["sbs_interface.SBDetectObjects"] = types.SimpleNamespace(ObjectDetector=object)
-sys.modules["PIL"] = types.SimpleNamespace(Image=object)
-class _BaseModel:
-    def __init__(self, **kwargs):
-        for k, v in kwargs.items():
-            setattr(self, k, v)
 
-sys.modules["pydantic"] = types.SimpleNamespace(BaseModel=_BaseModel, Field=lambda *a, **k: None)
-sys.modules["yaml"] = types.SimpleNamespace(safe_load=lambda *a, **k: {})
+pkg = types.ModuleType("sbs_interface")
+pkg.__path__ = [str(Path("src").resolve())]
+sys.modules["sbs_interface"] = pkg
 
-from sbs_interface import api
+from sbs_interface.services import celfdrive_workflow
+from sbs_interface.services.microscope import MontageTile
 
 if real_numpy is None:
     sys.modules.pop("numpy", None)
 else:
     sys.modules["numpy"] = real_numpy
 
-def test_start_celfdrive(monkeypatch):
-    calls = {"start_capture": []}
 
-    class FakeClient:
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def is_capturing(self):
-            return False
-
-        def fetch_capture_count(self):
-            return 1
-
-    class FakeMS:
-        def start_capture(self, script):
-            calls["start_capture"].append(script)
-
-        def _client(self):
-            return FakeClient()
-
-        def _wait_for_capture(self, mc, poll=0.5):
-            calls["wait"] = calls.get("wait", 0) + 1
-
-        def set_objective(self, objective):
-            calls["objective"] = objective
-
+def test_run_celfdrive_workflow(monkeypatch):
     boxes = [
         {"x": 0, "y": 0, "width": 10, "height": 10, "label": "cell", "confidence": 0.9},
         {"x": 20, "y": 20, "width": 5, "height": 5, "label": "noise", "confidence": 0.4},
     ]
 
-    def fake_detect(ms, channel, z, max_project):
-        return {"boxes": boxes, "width": 100, "height": 100}
+    class FakeDetector:
+        def detect(self, image, use_sahi=False):
+            return {"boxes": boxes}
 
-    monkeypatch.setattr(api, "detect_montage", fake_detect)
+    monkeypatch.setattr(celfdrive_workflow, "ObjectDetector", lambda: FakeDetector())
 
-    def fake_find(points, ms):
-        calls["points"] = points
-        return len(points)
+    class FakeService:
+        def __init__(self):
+            self.started = []
+            self.ensured = 0
+            self.points = []
+            self.objective = None
 
-    monkeypatch.setattr(api, "find_microscope_points", fake_find)
+        def start_capture(self, script):
+            self.started.append(script)
 
-    def fake_montage(channel, z, max_project, cross_corr, use_features, ms):
-        return {"image": "mont", "width": 100, "height": 100}
+        def ensure_capture_ready(self):
+            self.ensured += 1
+            return 0
 
-    monkeypatch.setattr(api, "get_microscope_montage", fake_montage)
+        def iterate_montage_tiles(self, channel=0, z=0, max_project=False, capture_index=None):
+            yield MontageTile(
+                image=object(),
+                stage_offset_um=(0.0, 0.0),
+                pixel_offset=(0.0, 0.0),
+                size_pixels=(10, 10),
+            )
 
-    monkeypatch.setattr(api, "get_capture_count", lambda ms: 7)
-    api.PointModel = types.SimpleNamespace
-    req = types.SimpleNamespace(
-        prescan="pre",
-        highres="hi",
-        classes={"cell": 0.5},
+        def push_points_from_pixels(self, pts):
+            self.points.append(pts)
+            return len(pts)
+
+        def set_objective(self, objective):
+            self.objective = objective
+
+        def fetch_stitched_montage(self, channel=0, z=0, max_project=False, cross_corr=False, use_features=False):
+            return "montage", (120, 80)
+
+        def fetch_capture_count(self):
+            return 7
+
+    svc = FakeService()
+
+    result = celfdrive_workflow.run_celfdrive_workflow(
+        svc,
+        prescan_script="pre",
+        highres_script="hi",
+        class_thresholds={"cell": 0.5},
+        offsets={"x_offset": 1, "y_offset": 2, "z_offset": 3},
         simulated=False,
         max_project=True,
         objective="40x",
-        offsets={"x_offset": 1, "y_offset": 2, "z_offset": 3},
     )
 
-    result = api.start_celfdrive(req, FakeMS())
-    assert calls["start_capture"] == ["pre", "hi"]
-    assert calls.get("wait") == 1
-    assert len(result["boxes"]) == 1
-    assert result["captureCount"] == 7
-    assert calls["points"][0].x == 6
-    assert calls["points"][0].y == 7
-    assert calls["points"][0].z == 3
-    assert calls["points"][0].auxZ == 3
-    assert calls["objective"] == "40x"
+    assert svc.started == ["pre", "hi"]
+    assert svc.ensured == 2  # run + detect
+    assert svc.objective == "40x"
+    assert svc.points
+    uploaded = svc.points[0]
+    assert uploaded[0][0] == 6
+    assert uploaded[0][1] == 7
+    assert uploaded[0][2] == 3
+    assert uploaded[0][3] == 3
+    assert result.width == 120
+    assert result.height == 80
+    assert result.capture_count == 7
+    assert len(result.boxes) == 1
