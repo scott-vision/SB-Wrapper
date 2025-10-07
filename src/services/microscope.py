@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import os
 import threading
-from typing import Any, List, Tuple, Optional, Union
+from dataclasses import dataclass
+from typing import Any, Iterator, List, Tuple, Optional, Union
 import time
 
 # NumPy is only required for image operations; make optional for light tests.
@@ -95,6 +96,16 @@ class MicroscopeService:
             if not capturing and count > 0:
                 break
             time.sleep(poll)
+
+
+@dataclass(frozen=True)
+class MontageTile:
+    """Description of a single montage tile returned by the microscope."""
+
+    image: Any
+    stage_offset_um: Tuple[float, float]
+    pixel_offset: Tuple[float, float]
+    size_pixels: Tuple[int, int]
 
     # ------------------------------------------------------------------
     def check_connection(self) -> bool:
@@ -275,6 +286,76 @@ class MicroscopeService:
             physical = finder.convert_points(pts)
             mc.push_points(physical)
             return len(physical)
+        except Exception:
+            self._handle_client_failure()
+            raise
+
+    # ------------------------------------------------------------------
+    def ensure_capture_ready(self, poll: float = 0.5) -> int:
+        """Wait until SlideBook finishes capturing and return latest capture index."""
+
+        mc = self._ensure_client()
+        self._wait_for_capture(mc, poll)
+        count = mc.fetch_capture_count()
+        if count <= 0:
+            raise ValueError("No captures available")
+        return mc.fetch_latest_capture_index()
+
+    # ------------------------------------------------------------------
+    def fetch_latest_capture_index(self) -> int:
+        """Return the index of the most recent capture."""
+
+        mc = self._ensure_client()
+        try:
+            return mc.fetch_latest_capture_index()
+        except Exception:
+            self._handle_client_failure()
+            raise
+
+    # ------------------------------------------------------------------
+    def iterate_montage_tiles(
+        self,
+        channel: int = 0,
+        z: int = 0,
+        max_project: bool = False,
+        capture_index: Optional[int] = None,
+    ) -> Iterator[MontageTile]:
+        """Yield montage tiles with their stage and pixel offsets."""
+
+        if np is None:
+            raise RuntimeError("NumPy is required for montage operations")
+
+        mc = self._ensure_client()
+        capture = (
+            capture_index
+            if capture_index is not None
+            else mc.fetch_latest_capture_index()
+        )
+
+        try:
+            util = MontageUtils(
+                mc,
+                capture_index=capture,
+                channel=channel,
+                z_plane=z,
+                max_project=max_project,
+            )
+            voxel_x, voxel_y, _ = mc.fetch_voxel_size(capture)
+            if not voxel_x or not voxel_y:
+                raise ValueError("Microscope reported zero voxel size")
+
+            for arr, (x_um, y_um) in util.fetch_images_with_coords():
+                height, width = arr.shape[:2]
+                pixel_offset = (
+                    float(x_um) / float(voxel_x),
+                    float(y_um) / float(voxel_y),
+                )
+                yield MontageTile(
+                    image=arr,
+                    stage_offset_um=(float(x_um), float(y_um)),
+                    pixel_offset=pixel_offset,
+                    size_pixels=(int(width), int(height)),
+                )
         except Exception:
             self._handle_client_failure()
             raise

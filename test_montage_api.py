@@ -1,6 +1,7 @@
 import sys
 import types
 import importlib
+from pathlib import Path
 
 _mods_backup = {name: sys.modules.get(name) for name in [
     "numpy",
@@ -23,6 +24,10 @@ sys.modules["sbs_interface.SBDetectObjects"] = types.SimpleNamespace(
 sys.modules["sbs_interface.SBPointOptimiser"] = types.SimpleNamespace(
     RouteOptimizer=object, distance=lambda *a, **k: 0, Point=tuple
 )
+
+pkg = types.ModuleType("sbs_interface")
+pkg.__path__ = [str(Path("src").resolve())]
+sys.modules["sbs_interface"] = pkg
 
 api = importlib.import_module("sbs_interface.api")
 
@@ -64,11 +69,11 @@ def test_get_microscope_montage(monkeypatch):
 def test_detect_objects_montage(monkeypatch):
     called = {}
 
-    def fake_detect(ms, channel, z, max_project, use_sahi=False):
+    def fake_detect(ms, channel=0, z=0, max_project=False, use_sahi=False):
         called["done"] = True
-        return {"boxes": []}
+        return types.SimpleNamespace(to_dict=lambda: {"boxes": []})
 
-    monkeypatch.setattr(api, "detect_montage", fake_detect)
+    monkeypatch.setattr(api.celfdrive_workflow, "detect_montage", fake_detect)
 
     result = api.detect_objects(0, 0, False, False, FakeService(), montage=True)
     assert called.get("done")
