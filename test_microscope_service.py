@@ -1,23 +1,48 @@
+import importlib
+import sys
 from typing import Tuple
+
+if "sbs_interface" not in sys.modules:
+    sys.modules["sbs_interface"] = importlib.import_module("src")
 
 from sbs_interface.services.microscope import MicroscopeService
 
 Point = Tuple[float, float, float, float]
 
 
+class _ConnectedFakeClient:
+    """Mixin implementing connection lifecycle expected by the service."""
+
+    instances = []
+    connect_count = 0
+
+    def __init__(self, *args, **kwargs):
+        self.connected = False
+        self.sb = None
+        type(self).instances.append(self)
+
+    def connect(self):
+        self.connected = True
+        type(self).connect_count += 1
+        self.sb = object()
+
+    def disconnect(self):
+        self.connected = False
+        self.sb = None
+
+    def is_healthy(self):
+        return self.connected
+
+
 def test_fetch_and_push_points(monkeypatch):
-    class FakeClient:
+    class FakeClient(_ConnectedFakeClient):
+        instances = []
+        connect_count = 0
         pushed = None
 
         def __init__(self, host, port, timeout=5.0):
+            super().__init__(host, port, timeout)
             self.points = [(1.0, 2.0, 3.0, 4.0)]
-            self.sb = object()
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            pass
 
         def fetch_points(self):
             return self.points
@@ -32,20 +57,14 @@ def test_fetch_and_push_points(monkeypatch):
     assert svc.fetch_points() == [(1.0, 2.0, 3.0, 4.0)]
     svc.push_points([(5.0, 6.0, 7.0, 8.0)])
     assert FakeClient.pushed == [(5.0, 6.0, 7.0, 8.0)]
+    svc.disconnect()
 
 
 def test_start_capture_and_channels(monkeypatch):
-    class FakeClient:
+    class FakeClient(_ConnectedFakeClient):
+        instances = []
+        connect_count = 0
         last_script = None
-
-        def __init__(self, *args, **kwargs):
-            self.sb = object()
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            pass
 
         def start_capture(self, script="Default"):
             type(self).last_script = script
@@ -64,6 +83,7 @@ def test_start_capture_and_channels(monkeypatch):
     assert svc.start_capture("foo") == 42
     assert FakeClient.last_script == "foo"
     assert svc.fetch_num_channels() == 7
+    svc.disconnect()
 
 
 def test_fetch_display_image(monkeypatch):
@@ -72,16 +92,9 @@ def test_fetch_display_image(monkeypatch):
         def maximum(a, b):
             return [[max(x, y) for x, y in zip(r1, r2)] for r1, r2 in zip(a, b)]
 
-    class FakeClient:
-        def __init__(self, *args, **kwargs):
-            self.sb = object()
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            pass
-
+    class FakeClient(_ConnectedFakeClient):
+        instances = []
+        connect_count = 0
         def is_capturing(self):
             return False
 
@@ -105,20 +118,14 @@ def test_fetch_display_image(monkeypatch):
     arr, planes = svc.fetch_display_image(channel=0, z=0, max_project=True)
     assert planes == 3
     assert arr == [[2, 2], [2, 2]]
+    svc.disconnect()
 
 
 def test_push_points_from_pixels(monkeypatch):
-    class FakeClient:
+    class FakeClient(_ConnectedFakeClient):
+        instances = []
+        connect_count = 0
         pushed = None
-
-        def __init__(self, *args, **kwargs):
-            self.sb = object()
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            pass
 
         def fetch_latest_capture_index(self):
             return 0
@@ -142,6 +149,7 @@ def test_push_points_from_pixels(monkeypatch):
     uploaded = svc.push_points_from_pixels([(2, 4, 1, 0)])
     assert uploaded == 1
     assert FakeClient.pushed == [(0.0, -2.0, 2.0, 0.0)]
+    svc.disconnect()
 
 
 def test_fetch_stitched_montage(monkeypatch):
@@ -153,16 +161,9 @@ def test_fetch_stitched_montage(monkeypatch):
             arr = [[1, 2], [3, 4]]
             return arr, (2, 2), (0.0, 0.0)
 
-    class FakeClient:
-        def __init__(self, *args, **kwargs):
-            self.sb = object()
-
-        def __enter__(self):
-            return self
-
-        def __exit__(self, exc_type, exc, tb):
-            pass
-
+    class FakeClient(_ConnectedFakeClient):
+        instances = []
+        connect_count = 0
         def is_capturing(self):
             return False
 
@@ -183,3 +184,32 @@ def test_fetch_stitched_montage(monkeypatch):
     arr, dims = svc.fetch_stitched_montage(channel=0, z=0)
     assert dims == (2, 2)
     assert arr == [[1, 2], [3, 4]]
+    svc.disconnect()
+
+
+def test_reuses_client_between_operations(monkeypatch):
+    class FakeClient(_ConnectedFakeClient):
+        instances = []
+        connect_count = 0
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.calls = []
+
+        def fetch_points(self):
+            self.calls.append("fetch_points")
+            return []
+
+        def fetch_capture_count(self):
+            self.calls.append("fetch_capture_count")
+            return 0
+
+    monkeypatch.setattr(
+        "sbs_interface.services.microscope.MicroscopeClient", FakeClient
+    )
+    svc = MicroscopeService("h", 1)
+    svc.fetch_points()
+    svc.fetch_capture_count()
+    assert len(FakeClient.instances) == 1
+    assert FakeClient.connect_count == 1
+    assert FakeClient.instances[0].calls == ["fetch_points", "fetch_capture_count"]
+    svc.disconnect()

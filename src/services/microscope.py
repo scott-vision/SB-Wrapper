@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import os
-from typing import List, Tuple, Optional, Union
+import threading
+from typing import Any, List, Tuple, Optional, Union
 import time
 
 # NumPy is only required for image operations; make optional for light tests.
@@ -19,8 +20,9 @@ from ..objective_manager import ObjectiveManager
 class MicroscopeService:
     """High-level wrapper around :class:`MicroscopeClient`.
 
-    Each method opens a short-lived connection to SlideBook and performs
-    the requested operation.  This keeps the web layer free from direct
+    The service maintains a long-lived connection guarded by a thread lock so
+    repeated operations can reuse the same socket without reconnecting to
+    SlideBook for every call.  This still keeps the web layer free from direct
     socket management and enables easy mocking during unit tests.
     """
 
@@ -28,10 +30,54 @@ class MicroscopeService:
         self.host = host
         self.port = port
         self.timeout = timeout
+        self._client_lock = threading.Lock()
+        self._client: Optional[MicroscopeClient] = None
+        self._sb: Optional[Any] = None
 
     # ------------------------------------------------------------------
-    def _client(self) -> MicroscopeClient:
-        return MicroscopeClient(self.host, self.port, self.timeout)
+    def connect(self) -> MicroscopeClient:
+        """Create or return the long-lived :class:`MicroscopeClient`."""
+        with self._client_lock:
+            client = self._client
+            if client and client.is_healthy():
+                return client
+
+            client = MicroscopeClient(self.host, self.port, self.timeout)
+            try:
+                client.connect()
+            except Exception:
+                self._client = None
+                self._sb = None
+                raise
+
+            self._client = client
+            self._sb = client.sb
+            return client
+
+    def disconnect(self) -> None:
+        """Close and clear any cached client."""
+        with self._client_lock:
+            client = self._client
+            self._client = None
+            self._sb = None
+
+        if client:
+            try:
+                client.disconnect()
+            except Exception:
+                pass
+
+    def _ensure_client(self) -> MicroscopeClient:
+        """Return a healthy client, reconnecting as necessary."""
+        client = self.connect()
+        if not client.is_healthy():
+            self.disconnect()
+            client = self.connect()
+        self._sb = client.sb
+        return client
+
+    def _handle_client_failure(self) -> None:
+        self.disconnect()
 
     def _wait_for_capture(self, mc: MicroscopeClient, poll: float = 0.5) -> None:
         """Block until the microscope is no longer capturing and at least one capture exists.
@@ -54,63 +100,96 @@ class MicroscopeService:
     def check_connection(self) -> bool:
         """Return ``True`` if a connection to the microscope can be made."""
         try:
-            with self._client():
-                return True
+            self.connect()
+            return True
         except Exception:
+            self.disconnect()
             return False
 
     # ------------------------------------------------------------------
     def fetch_points(self) -> List[Point]:
-        with self._client() as mc:
+        mc = self._ensure_client()
+        try:
             return mc.fetch_points()
+        except Exception:
+            self._handle_client_failure()
+            raise
 
     # ------------------------------------------------------------------
     def push_points(self, points: List[Point]) -> None:
-        with self._client() as mc:
+        mc = self._ensure_client()
+        try:
             mc.push_points(points)
+        except Exception:
+            self._handle_client_failure()
+            raise
 
     # ------------------------------------------------------------------
     def start_capture(self, script: str = "Default") -> int:
-        with self._client() as mc:
+        mc = self._ensure_client()
+        try:
             return mc.start_capture(script)
+        except Exception:
+            self._handle_client_failure()
+            raise
 
     # ------------------------------------------------------------------
     def fetch_num_channels(self) -> int:
-        with self._client() as mc:
+        mc = self._ensure_client()
+        try:
             capture = mc.fetch_latest_capture_index()
             return mc.fetch_num_channels(capture)
+        except Exception:
+            self._handle_client_failure()
+            raise
 
     # ------------------------------------------------------------------
     def list_objectives(self) -> List[Tuple[str, int]]:
         """Return available objectives as ``(name, position)`` pairs."""
-        with self._client() as mc:
+        mc = self._ensure_client()
+        try:
             if mc.sb is None:
                 return []
             mgr = ObjectiveManager(mc.sb)
             return mgr.list_objectives()
+        except Exception:
+            self._handle_client_failure()
+            raise
 
     # ------------------------------------------------------------------
     def get_current_objective(self) -> Optional[Tuple[str, int]]:
         """Return the currently selected objective."""
-        with self._client() as mc:
+        mc = self._ensure_client()
+        try:
             if mc.sb is None:
                 return None
             mgr = ObjectiveManager(mc.sb)
             return mgr.get_current_objective()
+        except Exception:
+            self._handle_client_failure()
+            raise
 
     # ------------------------------------------------------------------
     def set_objective(self, objective: Union[str, int]) -> bool:
         """Change the microscope objective."""
-        with self._client() as mc:
+        mc = self._ensure_client()
+        try:
             if mc.sb is None:
                 return False
             mgr = ObjectiveManager(mc.sb)
             return mgr.set_objective(objective)
+        except Exception:
+            self._handle_client_failure()
+            raise
 
     # ------------------------------------------------------------------
     def fetch_capture_count(self) -> int:
-        with self._client() as mc:
+        mc = self._ensure_client()
+        try:
             return mc.fetch_capture_count()
+        except Exception:
+            self._handle_client_failure()
+            raise
 
     # ------------------------------------------------------------------
     def fetch_display_image(
@@ -123,7 +202,8 @@ class MicroscopeService:
         """Return an image plane (optionally a Z max projection)."""
         if np is None:
             raise RuntimeError("NumPy is required for image operations")
-        with self._client() as mc:
+        mc = self._ensure_client()
+        try:
             self._wait_for_capture(mc)
             if mc.fetch_capture_count() == 0:
                 raise ValueError("No captures available")
@@ -147,6 +227,9 @@ class MicroscopeService:
             else:
                 arr = mc.fetch_image(capture, channel=channel, z_plane=z)
             return arr, planes
+        except Exception:
+            self._handle_client_failure()
+            raise
 
     # ------------------------------------------------------------------
     def fetch_stitched_montage(
@@ -160,7 +243,8 @@ class MicroscopeService:
         """Return a stitched montage image and its pixel dimensions."""
         if np is None:
             raise RuntimeError("NumPy is required for image operations")
-        with self._client() as mc:
+        mc = self._ensure_client()
+        try:
             self._wait_for_capture(mc)
             if mc.fetch_capture_count() == 0:
                 raise ValueError("No captures available")
@@ -177,16 +261,23 @@ class MicroscopeService:
                 cross_correlation=cross_corr, use_features=use_features
             )
             return arr, pixel_dims
+        except Exception:
+            self._handle_client_failure()
+            raise
 
     # ------------------------------------------------------------------
     def push_points_from_pixels(self, pts: List[Point]) -> int:
         """Convert pixel-space points to physical units and upload them."""
-        with self._client() as mc:
+        mc = self._ensure_client()
+        try:
             capture = mc.fetch_latest_capture_index()
             finder = PointFinder(mc, capture)
             physical = finder.convert_points(pts)
             mc.push_points(physical)
             return len(physical)
+        except Exception:
+            self._handle_client_failure()
+            raise
 
 
 MICROSCOPE_HOST = os.getenv("MICROSCOPE_HOST", "127.0.0.1")
