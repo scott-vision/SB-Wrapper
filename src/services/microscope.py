@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import threading
 from dataclasses import dataclass
 from typing import Any, Iterator, List, Tuple, Optional, Union
@@ -16,6 +15,7 @@ from ..microscope_client import MicroscopeClient, Point
 from ..SBPointFinder import PointFinder
 from ..SBMontageUtils import MontageUtils
 from ..objective_manager import ObjectiveManager
+from ..configuration import get_setting
 
 
 class MicroscopeService:
@@ -360,16 +360,27 @@ class MontageTile:
             self._handle_client_failure()
             raise
 
-
-MICROSCOPE_HOST = os.getenv("MICROSCOPE_HOST", "127.0.0.1")
-MICROSCOPE_PORT = int(os.getenv("MICROSCOPE_PORT", "65432"))
-
 _service: Optional[MicroscopeService] = None
+
+
+def _configured_connection() -> Tuple[str, int]:
+    """Return the configured host/port for the microscope service."""
+
+    host = get_setting("microscope.host", "127.0.0.1")
+    port_value = get_setting("microscope.port", 65432)
+    try:
+        port = int(port_value)
+    except (TypeError, ValueError) as exc:  # pragma: no cover - defensive
+        raise ValueError("microscope.port must be an integer") from exc
+
+    return str(host), port
 
 
 def get_microscope_service() -> MicroscopeService:
     """FastAPI dependency returning a singleton :class:`MicroscopeService`."""
+
     global _service
     if _service is None:
-        _service = MicroscopeService(MICROSCOPE_HOST, MICROSCOPE_PORT)
+        host, port = _configured_connection()
+        _service = MicroscopeService(host, port)
     return _service

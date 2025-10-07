@@ -1,0 +1,18 @@
+# Default configuration for SB Wrapper.  Adjust the values to match the
+# environment where the application runs.
+frontend:
+  # Directory containing the compiled front-end assets served by the FastAPI
+  # application.  Leave as ``null`` to fall back to the bundled static files.
+  directory: null
+
+microscope:
+  # Hostname or IP address for the SlideBook/SlideBook Server connection.
+  host: 127.0.0.1
+  # TCP port used by the microscope server.
+  port: 65432
+
+# Settings used by the YOLO object detection helper.
+detection:
+  # Optional path to a custom YOLO weight file.  ``null`` falls back to the
+  # bundled model weights.
+  yolo_model: null

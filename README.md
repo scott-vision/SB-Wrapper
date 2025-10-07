@@ -21,9 +21,18 @@ without going through HTTP.
    ```bash
    python -m src
    ```
- The server looks for static files in `frontend/`.  Set the environment
-  variable `SBS_FRONTEND_DIR` to serve a different front-end directory or omit
-  the folder entirely to use only the backend API.
+ The server looks for static files in `frontend/`.  Update the
+  ``frontend.directory`` entry in ``config.yaml`` to serve a different
+  front-end directory or omit the folder entirely to use only the backend API.
+
+## Configuration
+
+Runtime settings live in ``config.yaml`` at the repository root.  The default
+file configures the microscope connection (``microscope.host`` and
+``microscope.port``), the optional static frontend
+(``frontend.directory``), and the object-detection weights
+(``detection.yolo_model``).  Adjust these values to match your deployment
+environment and restart the server for changes to take effect.
 
 ## Programmatic use
 

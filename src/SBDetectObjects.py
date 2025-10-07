@@ -10,10 +10,11 @@ packaged here for reuse across the project.
 
 from pathlib import Path
 from typing import Dict, List, Any, Optional
-import os
 import numpy as np
 import logging
 from ultralytics import YOLO
+
+from .configuration import get_setting
 
 __all__ = ["ObjectDetector"]
 
@@ -26,7 +27,8 @@ class ObjectDetector:
     model_path:
         Optional path to a YOLO weight file.  If not provided, the path
         defaults to the bundled ``weights/yolov11l_ALLDATA_UNDERSAMPLE/best.pt``
-        model or the value of the ``YOLO_MODEL`` environment variable if set.
+        model or the ``detection.yolo_model`` entry from ``config.yaml`` when
+        present.
     """
 
     def __init__(self, model_path: Optional[str] = None) -> None:
@@ -36,7 +38,14 @@ class ObjectDetector:
             / "yolov11l_ALLDATA_UNDERSAMPLE"
             / "best.pt"
         )
-        self.model_path = model_path or os.getenv("YOLO_MODEL", str(default_model))
+        configured_model = get_setting("detection.yolo_model")
+        if model_path:
+            chosen = Path(model_path)
+        elif configured_model:
+            chosen = Path(str(configured_model)).expanduser()
+        else:
+            chosen = default_model
+        self.model_path = str(chosen)
         # Cache separate models for SAHI and standard inference so that
         # toggling the ``use_sahi`` flag between calls loads the correct
         # backend each time.

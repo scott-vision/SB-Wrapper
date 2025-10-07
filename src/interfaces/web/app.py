@@ -4,13 +4,13 @@ from __future__ import annotations
 
 import argparse
 import logging
-import os
 from pathlib import Path
 
 from fastapi import FastAPI
 
 from .api_router import router as api_router
 from .static_ui import include_static_ui
+from ...configuration import get_setting
 
 logging.basicConfig(level=logging.INFO)
 
@@ -18,9 +18,9 @@ logging.basicConfig(level=logging.INFO)
 def _resolve_frontend_dir() -> Path:
     """Return the configured frontend directory path."""
 
-    configured = os.environ.get("SBS_FRONTEND_DIR")
+    configured = get_setting("frontend.directory")
     if configured:
-        return Path(configured)
+        return Path(str(configured)).expanduser()
     return Path(__file__).resolve().parents[2] / "frontend"
 
 
